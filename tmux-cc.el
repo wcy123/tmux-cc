@@ -24,6 +24,7 @@
 
 ;;; Code:
 
+(require 'seq)
 
 
 (defvar tmux-cc-delimiter-begin "^```\n"
