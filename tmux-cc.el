@@ -34,6 +34,9 @@
 
 (defvar tmux-cc-target-window "1")
 
+(defvar tmux-cc-mimic-delay nil
+  "To mimic human typing. in milleseconds")
+
 (defun tmux-cc--convert-keys(strings)
   (seq-map #'(lambda(c) (format "%x" c)) strings))
 
@@ -56,22 +59,29 @@
   (add-hook 'kill-buffer-hook #'tmux-cc--delete-process-on-exit t t))
 
 (defun tmux-cc-send-keys (strings)
-  (if (file-remote-p (buffer-file-name))
-      (let ((ret (progn
-                   (tmux-cc--maybe-start-shell-process)
-                   (process-send-string
-                    tmux-cc--shell-process
-                    (concat (mapconcat #'identity
-                                       `("tmux" "send-keys" "-t"
-                                         ,(shell-quote-argument
-                                           tmux-cc-target-window) "-H"
-                                          ,@(tmux-cc--convert-keys strings))
-                                       " ") "\n")))))
-        (message "call return %S" ret))
+  (cond
+   ((file-remote-p (buffer-file-name))
+    (let ((ret (progn
+                 (tmux-cc--maybe-start-shell-process)
+                 (process-send-string
+                  tmux-cc--shell-process
+                  (concat (mapconcat #'identity
+                                     `("tmux" "send-keys" "-t"
+                                       ,(shell-quote-argument
+                                         tmux-cc-target-window) "-H"
+                                       ,@(tmux-cc--convert-keys strings))
+                                     " ") "\n")))))
+      (message "call return %S" ret)))
+   (tmux-cc-mimic-delay
+    (dolist (c (tmux-cc--convert-keys strings))
+      (call-process "tmux" nil "*tmux cc*" t
+                    "send-keys" "-t" tmux-cc-target-window "-H"  c)
+      (sleep-for 0 tmux-cc-mimic-delay)))
+   (:else
     (let ((ret (apply #'call-process `("tmux" nil "*tmux cc*" t
                                        "send-keys" "-t" ,tmux-cc-target-window "-H" ,@(tmux-cc--convert-keys
-                                                                           strings)))))
-      (list 'message "call return %S %S" ret (tmux-cc--convert-keys strings)))))
+                                                                                       strings)))))
+      (list 'message "call return %S %S" ret (tmux-cc--convert-keys strings))))))
 
 (defun tmux-cc-send-region(begin end)
   (interactive "r")
