@@ -150,6 +150,9 @@
            "\n")))
 
 
+(defun tmux-cc-set-target-window (target-window)
+  (interactive "sSet tmux target window: ")
+  (setq tmux-cc-target-window target-window))
 
 (provide 'tmux-cc)
 ;;; tmux-cc.el ends here
