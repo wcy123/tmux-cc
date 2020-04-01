@@ -76,7 +76,7 @@
     (dolist (c (tmux-cc--convert-keys strings))
       (call-process "tmux" nil "*tmux cc*" t
                     "send-keys" "-t" tmux-cc-target-window "-H"  c)
-      (sleep-for 0 tmux-cc-mimic-delay)))
+      (sleep-for 0 (random tmux-cc-mimic-delay))))
    (:else
     (let ((ret (apply #'call-process `("tmux" nil "*tmux cc*" t
                                        "send-keys" "-t" ,tmux-cc-target-window "-H" ,@(tmux-cc--convert-keys
