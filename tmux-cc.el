@@ -25,6 +25,7 @@
 ;;; Code:
 
 (require 'seq)
+(require 'shell)
 
 
 (defvar tmux-cc-delimiter-begin "^```\n"
@@ -38,7 +39,13 @@
   "To mimic human typing. in milleseconds")
 
 (defun tmux-cc--convert-keys(strings)
-  (seq-map #'(lambda(c) (format "%x" c)) strings))
+  (seq-map #'(lambda(c) (format "%x" c))
+           (with-temp-buffer
+             (insert strings)
+             (goto-char (point-min))
+             (while (re-search-forward shell-prompt-pattern nil t nil)
+               (replace-match ""))
+             (buffer-string))))
 
 (defvar-local tmux-cc--shell-process nil
   "the shell process for tmux cc. `tmux-cc-send-keys` send
