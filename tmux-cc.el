@@ -43,7 +43,7 @@
            (with-temp-buffer
              (insert strings)
              (goto-char (point-min))
-             (while (re-search-forward shell-prompt-pattern nil t nil)
+             (when (re-search-forward shell-prompt-pattern nil t nil)
                (replace-match ""))
              (buffer-string))))
 
