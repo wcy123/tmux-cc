@@ -160,6 +160,16 @@
 (defun tmux-cc-set-target-window (target-window)
   (interactive "sSet tmux target window: ")
   (setq tmux-cc-target-window target-window))
-
+;;;###autoload
+(defun tmux-cc-get-panel (target-panel)
+  (interactive "stmux panel: ")
+  (with-current-buffer (get-buffer-create (concat " *tmux " target-panel " *"))
+    (erase-buffer)
+    (call-process "tmux" nil t t
+                  "capture-pane" "-p"
+                  "-t" target-panel
+                  "-S" "-"
+                  "-E" "-")
+    (switch-to-buffer (current-buffer))))
 (provide 'tmux-cc)
 ;;; tmux-cc.el ends here
