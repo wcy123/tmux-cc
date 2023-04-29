@@ -34,17 +34,21 @@
   "end of a delimter")
 
 (defvar tmux-cc-target-window "1")
-
+(defvar tmux-cc-search-for-prompt nil)
 (defvar tmux-cc-mimic-delay nil
   "To mimic human typing. in milleseconds")
+
+(defvar tmux-cc-shell-bash-history '()
+  "the command history, sync with ~/.bash_history")
 
 (defun tmux-cc--convert-keys(strings)
   (seq-map #'(lambda(c) (format "%x" c))
            (with-temp-buffer
              (insert strings)
              (goto-char (point-min))
-             (when (re-search-forward shell-prompt-pattern nil t nil)
-               (replace-match ""))
+             (when tmux-cc-search-for-prompt
+               (when (re-search-forward shell-prompt-pattern nil t nil)
+                 (replace-match "")))
              (buffer-string))))
 
 (defvar-local tmux-cc--shell-process nil
@@ -138,11 +142,25 @@
 ;;       (push-mark begin nil t)
 ;;       (goto-char end))))
 
+;; (defun tmux-cc-shell-read-bash-history ()
+;;   (reverse (split-string
+;;             (with-temp-buffer
+;;               (insert-file-contents "~/.bash_history")
+;;               (buffer-substring-no-properties
+;;                (point-min)
+;;                (point-max)))
+;;             "\n"
+;;             t)))
+;;;###autoload
 (defun tmux-cc-shell-command (command)
   (interactive
    (list (read-shell-command
           "Tmux CC Shell command: "
           nil nil
+          ;; (progn (setq tmux-cc-shell-bash-history
+          ;;                  (tmux-cc-shell-read-bash-history)
+          ;;                  )
+          ;;            'tmux-cc-shell-bash-history)
           (let ((filename (cond (buffer-file-name)
                                 ((eq major-mode 'dired-mode) (dired-get-filename nil t)))))
             (and filename
@@ -171,5 +189,77 @@
                   "-S" "-"
                   "-E" "-")
     (switch-to-buffer (current-buffer))))
+
+;;;###autoload
+(defun tmux-cc-bind-command (command &rest args)
+  `(lambda ()
+     (interactive)
+     (call-process "tmux" nil t t
+                   ,command ,@args)))
+
+(defun convert-key (key)
+  (cond
+   ((eq key 'up)
+    (list "1b" "5b" "41"))
+   ((eq key 'down)
+    (list "1b" "5b" "42"))
+   ((eq key 'right)
+    (list "1b" "5b" "43"))
+   ((eq key 'left)
+    (list "1b" "5b" "44"))
+   ((eq key 'home)
+    (list "1b" "5b" "48"))
+   ((eq key 'end)
+    (list "1b" "5b" "31" "3b" "32" "46"))
+   ((eq key 'f6)
+    (list "3"))
+   ((eq key 'f7)
+    (list "7"))
+   ((integerp key)
+    (let ((ascii (logand key #xff)))
+      (if (not (= (logand key #x8000000) 0))
+          (list "1b" (format "%x" ascii))
+        (list (format "%x" ascii)))))
+   (t (error "unknown key %S" key ))))
+;;;###autoload
+(defun tmux-start-special-key ()
+  (interactive)
+  (message "tmux special key mode start")
+  (let (key)
+    (while (not (or (eq (setq key
+                              (read-key "sending key stroke to tmux,press s-g
+(cmd+g or win+g)
+to quit .... "))
+                        (aref (kbd "s-g") 0))))
+      (condition-case err
+          (apply #'call-process "tmux" nil t t
+                 "send-key" "-t" tmux-cc-target-window "-H" (convert-key
+                                                             key))
+        (error (warn "%s" (cdr err))))))
+  (message "tmux special key mode done"))
+
+(defvar tmux-cc-key-map
+  (let ((map (make-sparse-keymap)))
+    ;; These bindings roughly imitate those used by Outline mode.
+    (define-key map (kbd "C-b") 'tmux-start-special-key)
+    (define-key map "%"	      (tmux-cc-bind-command "split-window" "-h"))
+    (define-key map "0"	      (tmux-cc-bind-command "select-window" "-t"  ":=0"))
+    (define-key map "1"	      (tmux-cc-bind-command "select-window" "-t"  ":=1"))
+    (define-key map "2"	      (tmux-cc-bind-command "select-window" "-t"  ":=2"))
+    (define-key map "3"	      (tmux-cc-bind-command "select-window" "-t"  ":=3"))
+    (define-key map "4"	      (tmux-cc-bind-command "select-window" "-t"  ":=4"))
+    (define-key map "5"	      (tmux-cc-bind-command "select-window" "-t"  ":=5"))
+    (define-key map "6"	      (tmux-cc-bind-command "select-window" "-t"  ":=6"))
+    (define-key map "7"	      (tmux-cc-bind-command "select-window" "-t"  ":=7"))
+    (define-key map "8"	      (tmux-cc-bind-command "select-window" "-t"  ":=8"))
+    (define-key map "9"	      (tmux-cc-bind-command "select-window" "-t"  ":=9"))
+    (define-key map "c"	      (tmux-cc-bind-command "new-window"))
+    (define-key map "o"	      (tmux-cc-bind-command "last-pane" "-t" ":.+"))
+    (define-key map "l"	      (tmux-cc-bind-command "last-window"))
+    (define-key map "z"	      (tmux-cc-bind-command "resize-pane" "-Z"))
+    (define-key map (kbd "C-c")	      (tmux-cc-bind-command "send-key"
+  "-H" "3"))
+    map)
+  "Keymap for mimic tmux key bindings")
 (provide 'tmux-cc)
 ;;; tmux-cc.el ends here
