@@ -34,6 +34,7 @@
   "end of a delimter")
 
 (defvar tmux-cc-target-window "1")
+(defvar tmux-cc-target-host nil)
 (defvar tmux-cc-search-for-prompt nil)
 (defvar tmux-cc-mimic-delay nil
   "To mimic human typing. in milleseconds")
@@ -69,28 +70,29 @@
     (error "cannot start shell for tmux-cc"))
   (add-hook 'kill-buffer-hook #'tmux-cc--delete-process-on-exit t t))
 
+(defvar tmux-cc--cmd-buffer "*tmux cc*")
+(defun tmux-cc--tmux-cmd (&rest args)
+  (let*  ((buffer (cond
+                   ((bufferp tmux-cc--cmd-buffer) tmux-cc--cmd-buffer)
+                   ((stringp tmux-cc--cmd-buffer) (get-buffer-create
+                                                   tmux-cc--cmd-buffer))
+                   (:else (error "%S must be a buffer or string" tmux-cc--cmd-buffer))))
+          (apply-args (if tmux-cc-target-host
+                          `("ssh" nil ,buffer t
+                            ,tmux-cc-target-host
+                            "tmux" ,@args)
+                        `("tmux" nil tmux-cc--cmd-buffer t ,@args))))
+    (apply 'call-process apply-args)))
+
 (defun tmux-cc-send-keys (strings)
   (cond
-   ((file-remote-p (buffer-file-name))
-    (let ((ret (progn
-                 (tmux-cc--maybe-start-shell-process)
-                 (process-send-string
-                  tmux-cc--shell-process
-                  (concat (mapconcat #'identity
-                                     `("tmux" "send-keys" "-t"
-                                       ,(shell-quote-argument
-                                         tmux-cc-target-window) "-H"
-                                       ,@(tmux-cc--convert-keys strings))
-                                     " ") "\n")))))
-      (message "call return %S" ret)))
    (tmux-cc-mimic-delay
     (dolist (c (tmux-cc--convert-keys strings))
-      (call-process "tmux" nil "*tmux cc*" t
-                    "send-keys" "-t" tmux-cc-target-window "-H"  c)
+      (tmux-cc--tmux-cmd "send-keys" "-t" tmux-cc-target-window "-H" c)
       (sleep-for 0 (random tmux-cc-mimic-delay))))
    (:else
-    (let ((ret (apply #'call-process `("tmux" nil "*tmux cc*" t
-                                       "send-keys" "-t" ,tmux-cc-target-window "-H" ,@(tmux-cc--convert-keys
+    (let ((ret (apply #'tmux-cc--tmux-cmd
+                      `("send-keys" "-t" ,tmux-cc-target-window "-H" ,@(tmux-cc--convert-keys
                                                                                        strings)))))
       (list 'message "call return %S %S" ret (tmux-cc--convert-keys strings))))))
 
@@ -152,50 +154,69 @@
 ;;             "\n"
 ;;             t)))
 ;;;###autoload
-(defun tmux-cc-shell-command (command)
-  (interactive
-   (list (read-shell-command
-          "Tmux CC Shell command: "
-          nil nil
-          ;; (progn (setq tmux-cc-shell-bash-history
-          ;;                  (tmux-cc-shell-read-bash-history)
-          ;;                  )
-          ;;            'tmux-cc-shell-bash-history)
-          (let ((filename (cond (buffer-file-name)
-                                ((eq major-mode 'dired-mode) (dired-get-filename nil t)))))
-            (and filename
-                 (file-relative-name
-                  filename))))))
-  (tmux-cc-send-keys
-   (concat ;; "cd "
-    ;;(shell-quote-argument
-;;            (directory-file-name default-directory))
-  ;;         "\n"
-           command
-           "\n")))
+;; (defun tmux-cc-shell-command (command)
+;;   (interactive
+;;    (list (read-shell-command
+;;           "Tmux CC Shell command: "
+;;           nil nil
+;;           ;; (progn (setq tmux-cc-shell-bash-history
+;;           ;;                  (tmux-cc-shell-read-bash-history)
+;;           ;;                  )
+;;           ;;            'tmux-cc-shell-bash-history)
+;;           (let ((filename (cond (buffer-file-name)
+;;                                 ((eq major-mode 'dired-mode) (dired-get-filename nil t)))))
+;;             (and filename
+;;                  (file-relative-name
+;;                   filename))))))
+;;   (tmux-cc-send-keys
+;;    (concat ;; "cd "
+;;     ;;(shell-quote-argument
+;; ;;            (directory-file-name default-directory))
+;;   ;;         "\n"
+;;            command
+;;            "\n")))
 
 ;;;###autoload
 (defun tmux-cc-set-target-window (target-window)
   (interactive "sSet tmux target window: ")
   (setq tmux-cc-target-window target-window))
 ;;;###autoload
-(defun tmux-cc-get-panel (target-panel)
-  (interactive "stmux panel: ")
-  (with-current-buffer (get-buffer-create (concat " *tmux " target-panel " *"))
-    (erase-buffer)
-    (call-process "tmux" nil t t
-                  "capture-pane" "-p"
-                  "-t" target-panel
-                  "-S" "-"
-                  "-E" "-")
-    (switch-to-buffer (current-buffer))))
+(defun tmux-cc-get-panel ()
+  (interactive ;; "stmux panel (empty for current): "
+   )
+  (let ((tmux-cc--cmd-buffer (concat " *tmux "
+                                (format
+                                 "%s@%s"
+                                 tmux-cc-target-window
+                                 tmux-cc-target-host) " *")))
+    (with-current-buffer (get-buffer-create tmux-cc--cmd-buffer)
+      (erase-buffer)
+      (tmux-cc--tmux-cmd "capture-pane" "-p" ;; "-t" target-panel
+                         "-S" "-" "-E" "-")
+      (save-excursion
+        (goto-char (point-min))
+        (replace-regexp-in-region "^[[:blank:]]*\n+\\'" "\n"))
+      (switch-to-buffer (current-buffer)))))
+;;;
+(defun tmux-cc-clear ()
+  (interactive)
+  (tmux-cc-send-keys "clear\n")
+  (tmux-cc--tmux-cmd "tmux" "clear-history"))
+;;;
+(defun tmux-cc-run-single-command (command)
+  (interactive "scommand: ")
+  (tmux-cc-send-keys "clear\n")
+  (tmux-cc--tmux-cmd "tmux" "clear-history")
+  (tmux-cc-send-keys (concat command "\n"))
+  (let ((tmux-cc--cmd-buffer (current-buffer)))
+    (tmux-cc--tmux-cmd "capture-pane" "-p" ;; "-t" target-panel
+                         "-S" "0" "-E" "-")))
 
 ;;;###autoload
 (defun tmux-cc-bind-command (command &rest args)
   `(lambda ()
      (interactive)
-     (call-process "tmux" nil t t
-                   ,command ,@args)))
+     (tmux-cc--tmux-cmd ,command ,@args)))
 
 (defun convert-key (key)
   (cond
@@ -232,9 +253,10 @@
 to quit .... "))
                         (aref (kbd "s-g") 0))))
       (condition-case err
-          (apply #'call-process "tmux" nil t t
-                 "send-key" "-t" tmux-cc-target-window "-H" (convert-key
-                                                             key))
+          (apply #'tmux-cc--tmux-cmd
+                 "send-key" "-t"
+                 tmux-cc-target-window
+                 "-H" (convert-key key))
         (error (warn "%s" (cdr err))))))
   (message "tmux special key mode done"))
 
@@ -242,6 +264,8 @@ to quit .... "))
   (let ((map (make-sparse-keymap)))
     ;; These bindings roughly imitate those used by Outline mode.
     (define-key map (kbd "C-b") 'tmux-start-special-key)
+    (define-key map (kbd "g") 'tmux-cc-get-panel)
+    (define-key map (kbd "C-l") 'tmux-cc-clear)
     (define-key map "%"	      (tmux-cc-bind-command "split-window" "-h"))
     (define-key map "0"	      (tmux-cc-bind-command "select-window" "-t"  ":=0"))
     (define-key map "1"	      (tmux-cc-bind-command "select-window" "-t"  ":=1"))
