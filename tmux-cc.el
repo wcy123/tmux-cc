@@ -81,11 +81,29 @@
                           `("ssh" nil ,buffer t
                             ,tmux-cc-target-host
                             "tmux" ,@args)
-                        `("tmux" nil tmux-cc--cmd-buffer t ,@args))))
+                        `("tmux" nil ,buffer t ,@args))))
+    ;;(message "%S" apply-args)
     (apply 'call-process apply-args)))
 
 (defun tmux-cc-send-keys (strings)
   (cond
+   ((and nil :hack) (let ()
+            (with-temp-file "/tmp/a.cmd"
+              (insert strings))
+            (call-process "osascript" nil nil nil "-e"
+                        (concat
+                         "
+tell application \"iTerm\"
+	tell current window
+		tell current tab
+			tell current session
+				write contents of file \"/tmp/a.cmd\" newline false
+			end tell
+		end tell
+	end tell
+end tell"
+
+                         ))))
    (tmux-cc-mimic-delay
     (dolist (c (tmux-cc--convert-keys strings))
       (tmux-cc--tmux-cmd "send-keys" "-t" tmux-cc-target-window "-H" c)
@@ -201,7 +219,7 @@
 (defun tmux-cc-clear ()
   (interactive)
   (tmux-cc-send-keys "clear\n")
-  (tmux-cc--tmux-cmd "tmux" "clear-history"))
+  (tmux-cc--tmux-cmd "clear-history"))
 ;;;
 (defun tmux-cc-run-single-command (command)
   (interactive "scommand: ")
@@ -260,6 +278,23 @@ to quit .... "))
         (error (warn "%s" (cdr err))))))
   (message "tmux special key mode done"))
 
+(defun tmux-cc-send-keys-from-a-file (file)
+  (interactive "fSend keys from a file")
+  (message file)
+  (with-temp-buffer
+    (insert-file-literally file)
+    (goto-char (point-min))
+    (while (not (eobp))
+      (tmux-cc-send-keys
+       (concat (buffer-substring
+                (line-beginning-position) (line-end-position))
+               "\n"))
+      (forward-line 1))))
+
+(defun tmux-cc-send-a-key (key)
+  (interactive "kKey:")
+  (tmux-cc-send-keys key))
+
 (defvar tmux-cc-key-map
   (let ((map (make-sparse-keymap)))
     ;; These bindings roughly imitate those used by Outline mode.
@@ -281,6 +316,7 @@ to quit .... "))
     (define-key map "o"	      (tmux-cc-bind-command "last-pane" "-t" ":.+"))
     (define-key map "l"	      (tmux-cc-bind-command "last-window"))
     (define-key map "z"	      (tmux-cc-bind-command "resize-pane" "-Z"))
+    (define-key map "q"	      #'tmux-cc-send-a-key)
     (define-key map (kbd "C-c")	      (tmux-cc-bind-command "send-key"
   "-H" "3"))
     map)
